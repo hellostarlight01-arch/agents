@@ -11,8 +11,8 @@ load_dotenv()
 class CopyTradeConfig:
     target_profile_url: str
     max_trade_pct: float = 0.05  # 5% of wallet balance per trade
-    max_trade_usd: float = 50.0  # Hard cap: never trade more than $50 per order
-    max_daily_loss_usd: float = 100.0  # Circuit breaker: stop after $100 daily loss
+    max_trade_usd: float = 15.0  # Hard cap: never trade more than $15 per order
+    max_daily_loss_usd: float = 50.0  # Circuit breaker: stop after $50 daily loss
     poll_interval_seconds: int = 30
     max_slippage_pct: float = 0.02  # 2% max slippage
     max_retries: int = 3
@@ -23,8 +23,15 @@ class CopyTradeConfig:
     @classmethod
     def from_env(cls) -> "CopyTradeConfig":
         target_url = os.getenv("COPY_TARGET_PROFILE_URL", "")
-        if not target_url:
-            raise ValueError("COPY_TARGET_PROFILE_URL must be set in .env")
+        target_address = os.getenv("COPY_TARGET_ADDRESS", "")
+        if not target_url and not target_address:
+            raise ValueError(
+                "Either COPY_TARGET_PROFILE_URL or COPY_TARGET_ADDRESS must be set in .env"
+            )
+        if target_address and not re.match(r"^0x[a-fA-F0-9]{40}$", target_address):
+            raise ValueError(
+                f"COPY_TARGET_ADDRESS does not look like a valid Ethereum address: {target_address}"
+            )
 
         max_trade_pct = float(os.getenv("MAX_TRADE_PCT", "0.05"))
         if not 0.0 < max_trade_pct <= 1.0:
@@ -40,13 +47,13 @@ class CopyTradeConfig:
 
         max_slippage = float(os.getenv("MAX_SLIPPAGE_PCT", "0.02"))
 
-        max_trade_usd = float(os.getenv("MAX_TRADE_USD", "50.0"))
+        max_trade_usd = float(os.getenv("MAX_TRADE_USD", "15.0"))
         if max_trade_usd <= 0:
             raise ValueError(
                 f"MAX_TRADE_USD must be positive, got {max_trade_usd}"
             )
 
-        max_daily_loss_usd = float(os.getenv("MAX_DAILY_LOSS_USD", "100.0"))
+        max_daily_loss_usd = float(os.getenv("MAX_DAILY_LOSS_USD", "50.0"))
         if max_daily_loss_usd <= 0:
             raise ValueError(
                 f"MAX_DAILY_LOSS_USD must be positive, got {max_daily_loss_usd}"
