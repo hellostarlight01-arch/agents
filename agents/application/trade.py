@@ -61,8 +61,8 @@ class Trader:
             # print(f"6. TRADED {trade}")
 
         except Exception as e:
-            print(f"Error {e} \n \n Retrying")
-            self.one_best_trade()
+            print(f"Error during trade execution: {e}")
+            raise
 
     def maintain_positions(self):
         pass

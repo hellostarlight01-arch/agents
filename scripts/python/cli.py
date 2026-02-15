@@ -7,6 +7,8 @@ from agents.connectors.news import News
 from agents.application.trade import Trader
 from agents.application.executor import Executor
 from agents.application.creator import Creator
+from agents.copytrade.config import CopyTradeConfig
+from agents.copytrade.bot import CopyTradeBot
 
 app = typer.Typer()
 polymarket = Polymarket()
@@ -122,6 +124,43 @@ def run_autonomous_trader() -> None:
     """
     trader = Trader()
     trader.one_best_trade()
+
+
+@app.command()
+def copy_trade(
+    dry_run: bool = typer.Option(True, help="Log trades without executing"),
+) -> None:
+    """
+    Start the copy-trade bot to mirror a target profile's trades.
+    Configure target profile and limits in .env file.
+    """
+    config = CopyTradeConfig.from_env()
+    if dry_run:
+        config.dry_run = True
+    bot = CopyTradeBot(config)
+
+    status = bot.status()
+    print(f"Copy-Trade Bot Status:")
+    print(f"  Target: {status['target_profile']}")
+    print(f"  Address: {status['target_address']}")
+    print(f"  Balance: ${status['usdc_balance']:.2f} USDC")
+    print(f"  Max per trade: ${status['max_trade_amount']:.2f} ({status['max_trade_pct']:.0%})")
+    print(f"  Dry run: {status['dry_run']}")
+    print(f"  Poll interval: {status['poll_interval']}s")
+    print()
+
+    bot.run()
+
+
+@app.command()
+def copy_trade_status() -> None:
+    """
+    Show copy-trade bot configuration and wallet status.
+    """
+    config = CopyTradeConfig.from_env()
+    bot = CopyTradeBot(config)
+    status = bot.status()
+    pprint(status)
 
 
 if __name__ == "__main__":

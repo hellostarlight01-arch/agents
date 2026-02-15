@@ -1,0 +1,72 @@
+import os
+import re
+from dataclasses import dataclass
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+@dataclass
+class CopyTradeConfig:
+    target_profile_url: str
+    max_trade_pct: float = 0.05  # 5% of wallet balance per trade
+    poll_interval_seconds: int = 30
+    max_slippage_pct: float = 0.02  # 2% max slippage
+    max_retries: int = 3
+    retry_backoff_base: float = 2.0
+    log_file: str = "copytrade_audit.log"
+    dry_run: bool = False
+
+    @classmethod
+    def from_env(cls) -> "CopyTradeConfig":
+        target_url = os.getenv("COPY_TARGET_PROFILE_URL", "")
+        if not target_url:
+            raise ValueError("COPY_TARGET_PROFILE_URL must be set in .env")
+
+        max_trade_pct = float(os.getenv("MAX_TRADE_PCT", "0.05"))
+        if not 0.0 < max_trade_pct <= 1.0:
+            raise ValueError(
+                f"MAX_TRADE_PCT must be between 0 and 1, got {max_trade_pct}"
+            )
+
+        poll_interval = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
+        if poll_interval < 10:
+            raise ValueError(
+                f"POLL_INTERVAL_SECONDS must be >= 10, got {poll_interval}"
+            )
+
+        max_slippage = float(os.getenv("MAX_SLIPPAGE_PCT", "0.02"))
+        dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
+        log_file = os.getenv("COPYTRADE_LOG_FILE", "copytrade_audit.log")
+
+        return cls(
+            target_profile_url=target_url,
+            max_trade_pct=max_trade_pct,
+            poll_interval_seconds=poll_interval,
+            max_slippage_pct=max_slippage,
+            log_file=log_file,
+            dry_run=dry_run,
+        )
+
+    def extract_username_from_url(self) -> str:
+        match = re.search(r"polymarket\.com/@(\w+)", self.target_profile_url)
+        if match:
+            return match.group(1)
+        raise ValueError(
+            f"Cannot extract username from URL: {self.target_profile_url}"
+        )
+
+
+def validate_private_key() -> str:
+    key = os.getenv("POLYGON_WALLET_PRIVATE_KEY", "")
+    if not key:
+        raise ValueError(
+            "POLYGON_WALLET_PRIVATE_KEY must be set in .env. "
+            "Never share this key or commit it to version control."
+        )
+    if not re.match(r"^(0x)?[0-9a-fA-F]{64}$", key):
+        raise ValueError(
+            "POLYGON_WALLET_PRIVATE_KEY does not look like a valid private key."
+        )
+    return key
