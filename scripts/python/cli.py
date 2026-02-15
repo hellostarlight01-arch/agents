@@ -148,6 +148,7 @@ def copy_trade(
     print(f"  Daily limit: ${status['max_daily_loss_usd']:.2f}")
     print(f"  Dry run: {status['dry_run']}")
     print(f"  Poll interval: {status['poll_interval']}s")
+    print(f"  Telegram: {'enabled' if status.get('telegram_enabled') else 'not configured'}")
     print()
 
     bot.run()

@@ -7,6 +7,7 @@ from agents.copytrade.config import CopyTradeConfig, validate_private_key
 from agents.copytrade.logger import log_event, log_trade, setup_audit_logger
 from agents.copytrade.monitor import ProfileMonitor
 from agents.copytrade.safety import SafetyGuard
+from agents.copytrade.telegram import TelegramNotifier
 from agents.polymarket.polymarket import Polymarket
 
 
@@ -18,11 +19,13 @@ class CopyTradeBot:
     - 5% max per trade (configurable)
     - Slippage protection
     - Full audit logging
+    - Telegram notifications (optional)
     """
 
     def __init__(self, config: CopyTradeConfig) -> None:
         self.config = config
         self.logger = setup_audit_logger(config.log_file)
+        self.telegram = TelegramNotifier()
 
         # Validate private key before initializing anything
         validate_private_key()
@@ -76,6 +79,15 @@ class CopyTradeBot:
                 result="REJECTED",
                 error=validation.reason,
             )
+            self.telegram.notify_trade(
+                action="TRADE_REJECTED",
+                side=side,
+                amount=target_size,
+                price=price,
+                market=market_question,
+                balance=usdc_balance,
+                error=validation.reason,
+            )
             return
 
         amount = validation.adjusted_amount
@@ -92,6 +104,14 @@ class CopyTradeBot:
                 price=price,
                 usdc_balance=usdc_balance,
                 result="DRY_RUN",
+            )
+            self.telegram.notify_trade(
+                action="DRY_RUN_TRADE",
+                side=side,
+                amount=amount,
+                price=price,
+                market=market_question,
+                balance=usdc_balance,
             )
             return
 
@@ -118,6 +138,14 @@ class CopyTradeBot:
                 usdc_balance=usdc_balance,
                 result=str(resp),
             )
+            self.telegram.notify_trade(
+                action="TRADE_EXECUTED",
+                side=side,
+                amount=amount,
+                price=price,
+                market=market_question,
+                balance=usdc_balance,
+            )
         except Exception as e:
             log_trade(
                 logger=self.logger,
@@ -132,6 +160,15 @@ class CopyTradeBot:
                 result="ERROR",
                 error=str(e),
             )
+            self.telegram.notify_trade(
+                action="TRADE_FAILED",
+                side=side,
+                amount=amount,
+                price=price,
+                market=market_question,
+                balance=usdc_balance,
+                error=str(e),
+            )
 
     def run(self) -> None:
         """Main loop: monitor target and mirror trades."""
@@ -142,14 +179,15 @@ class CopyTradeBot:
 
         target = self.monitor.get_target_address()
         balance = self.safety.get_usdc_balance()
-        log_event(
-            self.logger,
-            "BOT_STATUS",
-            f"Monitoring target: {target} | "
-            f"Balance: ${balance:.2f} USDC | "
-            f"Max per trade: {self.config.max_trade_pct:.0%} | "
-            f"Dry run: {self.config.dry_run}",
+        status_msg = (
+            f"Monitoring: {target}\n"
+            f"Balance: ${balance:.2f} USDC\n"
+            f"Max/trade: ${self.config.max_trade_usd:.2f} or {self.config.max_trade_pct:.0%}\n"
+            f"Daily limit: ${self.config.max_daily_loss_usd:.2f}\n"
+            f"Dry run: {self.config.dry_run}"
         )
+        log_event(self.logger, "BOT_STATUS", status_msg)
+        self.telegram.notify_bot_event("BOT_START", status_msg)
 
         consecutive_errors = 0
         max_consecutive_errors = 10
@@ -166,26 +204,28 @@ class CopyTradeBot:
 
             except KeyboardInterrupt:
                 log_event(self.logger, "BOT_STOP", "Bot stopped by user")
+                self.telegram.notify_bot_event("BOT_STOP", "Bot stopped by user")
                 break
             except Exception as e:
                 consecutive_errors += 1
                 backoff = min(
                     self.config.retry_backoff_base ** consecutive_errors, 300
                 )
-                log_event(
-                    self.logger,
-                    "BOT_ERROR",
+                error_msg = (
                     f"Error in main loop ({consecutive_errors}/{max_consecutive_errors}): "
-                    f"{e}. Retrying in {backoff:.0f}s",
+                    f"{e}. Retrying in {backoff:.0f}s"
                 )
+                log_event(self.logger, "BOT_ERROR", error_msg)
 
                 if consecutive_errors >= max_consecutive_errors:
-                    log_event(
-                        self.logger,
-                        "BOT_SHUTDOWN",
-                        f"Too many consecutive errors ({max_consecutive_errors}). Shutting down.",
-                    )
+                    shutdown_msg = f"Too many consecutive errors ({max_consecutive_errors}). Shutting down."
+                    log_event(self.logger, "BOT_SHUTDOWN", shutdown_msg)
+                    self.telegram.notify_bot_event("BOT_SHUTDOWN", shutdown_msg)
                     break
+
+                # Only notify on Telegram every 3rd error to avoid spam
+                if consecutive_errors % 3 == 1:
+                    self.telegram.notify_bot_event("BOT_ERROR", error_msg)
 
                 time.sleep(backoff)
 
@@ -216,4 +256,5 @@ class CopyTradeBot:
             "poll_interval": self.config.poll_interval_seconds,
             "dry_run": self.config.dry_run,
             "known_trades": len(self.monitor.known_trade_ids),
+            "telegram_enabled": self.telegram.enabled,
         }
