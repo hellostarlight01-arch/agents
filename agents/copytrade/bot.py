@@ -104,6 +104,8 @@ class CopyTradeBot:
                 token_id=token_id,
             )
 
+            self.safety.record_trade(amount)
+
             log_trade(
                 logger=self.logger,
                 action="TRADE_EXECUTED",
@@ -200,12 +202,17 @@ class CopyTradeBot:
         """Return current bot status."""
         balance = self.safety.get_usdc_balance()
         target = self.monitor.get_target_address()
+        pct_amount = balance * self.config.max_trade_pct
+        effective_max = min(pct_amount, self.config.max_trade_usd)
         return {
             "target_address": target,
             "target_profile": self.config.target_profile_url,
             "usdc_balance": balance,
             "max_trade_pct": self.config.max_trade_pct,
-            "max_trade_amount": balance * self.config.max_trade_pct,
+            "max_trade_usd": self.config.max_trade_usd,
+            "max_trade_amount": effective_max,
+            "max_daily_loss_usd": self.config.max_daily_loss_usd,
+            "daily_spent": self.safety.daily_ledger.spent_today(),
             "poll_interval": self.config.poll_interval_seconds,
             "dry_run": self.config.dry_run,
             "known_trades": len(self.monitor.known_trade_ids),

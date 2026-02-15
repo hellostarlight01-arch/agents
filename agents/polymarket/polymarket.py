@@ -2,7 +2,6 @@
 # https://github.com/Polymarket/py-clob-client/tree/main/examples
 
 import os
-import pdb
 import time
 import ast
 import requests
@@ -334,6 +333,15 @@ class Polymarket:
         return order
 
     def execute_order(self, price, size, side, token_id) -> str:
+        if side not in ("BUY", "SELL"):
+            raise ValueError(f"Invalid side: {side!r} — must be 'BUY' or 'SELL'")
+        if not isinstance(price, (int, float)) or not (0.0 < price < 1.0):
+            raise ValueError(f"Invalid price: {price!r} — must be between 0 and 1")
+        if not isinstance(size, (int, float)) or size <= 0:
+            raise ValueError(f"Invalid size: {size!r} — must be positive")
+        if not token_id or not isinstance(token_id, str):
+            raise ValueError(f"Invalid token_id: {token_id!r}")
+
         return self.client.create_and_post_order(
             OrderArgs(price=price, size=size, side=side, token_id=token_id)
         )
@@ -361,7 +369,6 @@ class Polymarket:
 def test():
     host = "https://clob.polymarket.com"
     key = os.getenv("POLYGON_WALLET_PRIVATE_KEY")
-    print(key)
     chain_id = POLYGON
 
     # Create CLOB client and get/set API credentials
@@ -418,7 +425,6 @@ def gamma():
                 markets.append(SimpleMarket(**market_data))
             except Exception as err:
                 print(f"error {err} for market {id}")
-        pdb.set_trace()
     else:
         raise Exception()
 

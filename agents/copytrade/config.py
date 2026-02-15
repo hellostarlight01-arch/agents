@@ -11,6 +11,8 @@ load_dotenv()
 class CopyTradeConfig:
     target_profile_url: str
     max_trade_pct: float = 0.05  # 5% of wallet balance per trade
+    max_trade_usd: float = 50.0  # Hard cap: never trade more than $50 per order
+    max_daily_loss_usd: float = 100.0  # Circuit breaker: stop after $100 daily loss
     poll_interval_seconds: int = 30
     max_slippage_pct: float = 0.02  # 2% max slippage
     max_retries: int = 3
@@ -37,12 +39,27 @@ class CopyTradeConfig:
             )
 
         max_slippage = float(os.getenv("MAX_SLIPPAGE_PCT", "0.02"))
+
+        max_trade_usd = float(os.getenv("MAX_TRADE_USD", "50.0"))
+        if max_trade_usd <= 0:
+            raise ValueError(
+                f"MAX_TRADE_USD must be positive, got {max_trade_usd}"
+            )
+
+        max_daily_loss_usd = float(os.getenv("MAX_DAILY_LOSS_USD", "100.0"))
+        if max_daily_loss_usd <= 0:
+            raise ValueError(
+                f"MAX_DAILY_LOSS_USD must be positive, got {max_daily_loss_usd}"
+            )
+
         dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
         log_file = os.getenv("COPYTRADE_LOG_FILE", "copytrade_audit.log")
 
         return cls(
             target_profile_url=target_url,
             max_trade_pct=max_trade_pct,
+            max_trade_usd=max_trade_usd,
+            max_daily_loss_usd=max_daily_loss_usd,
             poll_interval_seconds=poll_interval,
             max_slippage_pct=max_slippage,
             log_file=log_file,
