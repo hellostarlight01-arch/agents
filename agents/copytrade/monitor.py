@@ -8,7 +8,7 @@ from agents.copytrade.logger import log_event, setup_audit_logger
 
 
 class ProfileMonitor:
-    """Monitors a Polymarket profile and detects new trades to copy."""
+    """Monitors a Polymarket profile and detects new trades by tracking position changes."""
 
     def __init__(self, config: CopyTradeConfig) -> None:
         self.config = config
@@ -16,8 +16,9 @@ class ProfileMonitor:
         self.gamma_url = "https://gamma-api.polymarket.com"
         self.clob_url = "https://clob.polymarket.com"
         self.target_address: Optional[str] = None
-        self.last_seen_trade_id: Optional[str] = None
         self.known_trade_ids: set = set()
+        # Position tracking: {asset_id: {"size": float, "side": str, ...}}
+        self.last_positions: dict = {}
 
     def resolve_profile_to_address(self) -> str:
         """Resolve a Polymarket profile URL/username to a wallet address."""
@@ -108,116 +109,164 @@ class ProfileMonitor:
 
         return self.resolve_profile_to_address()
 
-    def fetch_target_trades(self) -> list[dict]:
-        """Fetch recent trades from the target address via CLOB API and activity API."""
-        address = self.get_target_address()
-        all_trades = []
-
-        # Try CLOB maker trades
-        for role in ["maker_address", "taker_address"]:
-            try:
-                url = f"{self.clob_url}/trades"
-                params = {role: address, "limit": 50}
-                resp = httpx.get(url, params=params, timeout=15)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, list):
-                        all_trades.extend(data)
-            except Exception as e:
-                log_event(
-                    self.logger,
-                    "FETCH_TRADES_ERROR",
-                    f"CLOB {role} endpoint failed: {e}",
-                )
-
-        # Try data API
-        try:
-            url = f"{self.clob_url}/data/trades"
-            params = {"maker_address": address, "limit": 50}
-            resp = httpx.get(url, params=params, timeout=15)
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, dict) and "data" in data:
-                    all_trades.extend(data["data"])
-                elif isinstance(data, list):
-                    all_trades.extend(data)
-        except Exception as e:
-            log_event(
-                self.logger,
-                "FETCH_TRADES_ERROR",
-                f"CLOB data/trades endpoint failed: {e}",
-            )
-
-        # Try Gamma activity API (catches trades the CLOB API might miss)
-        try:
-            url = f"{self.gamma_url}/activity"
-            params = {"user": address, "limit": 50}
-            resp = httpx.get(url, params=params, timeout=15)
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, list):
-                    all_trades.extend(data)
-        except Exception as e:
-            log_event(
-                self.logger,
-                "FETCH_TRADES_ERROR",
-                f"Gamma activity endpoint failed: {e}",
-            )
-
-        # Deduplicate by trade ID
-        seen = set()
-        unique_trades = []
-        for trade in all_trades:
-            tid = trade.get("id") or trade.get("tradeID") or trade.get("transaction_hash")
-            if tid and tid not in seen:
-                seen.add(tid)
-                unique_trades.append(trade)
-
-        return unique_trades
-
     def fetch_target_positions(self) -> list[dict]:
-        """Fetch current positions from the target address."""
+        """Fetch current positions from the target address via multiple endpoints."""
         address = self.get_target_address()
+        positions = []
 
+        # Try Gamma positions endpoint
         try:
             url = f"{self.gamma_url}/positions"
             params = {"user": address}
             resp = httpx.get(url, params=params, timeout=15)
             if resp.status_code == 200:
-                return resp.json()
+                data = resp.json()
+                if isinstance(data, list):
+                    positions = data
+                    log_event(
+                        self.logger,
+                        "FETCH_POSITIONS",
+                        f"Gamma returned {len(positions)} positions",
+                    )
         except Exception as e:
             log_event(
                 self.logger,
                 "FETCH_POSITIONS_ERROR",
-                f"Gamma positions endpoint failed: {e}",
+                f"Gamma positions failed: {e}",
             )
 
-        return []
+        # Also try with checksummed address
+        if not positions:
+            try:
+                from web3 import Web3
+                checksummed = Web3.to_checksum_address(address)
+                url = f"{self.gamma_url}/positions"
+                params = {"user": checksummed}
+                resp = httpx.get(url, params=params, timeout=15)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list):
+                        positions = data
+                        log_event(
+                            self.logger,
+                            "FETCH_POSITIONS",
+                            f"Gamma (checksummed) returned {len(positions)} positions",
+                        )
+            except Exception as e:
+                log_event(
+                    self.logger,
+                    "FETCH_POSITIONS_ERROR",
+                    f"Gamma checksummed positions failed: {e}",
+                )
+
+        return positions
+
+    def _positions_to_dict(self, positions: list[dict]) -> dict:
+        """Convert positions list to a dict keyed by asset/token ID."""
+        result = {}
+        for pos in positions:
+            # Try different field names for the asset identifier
+            asset_id = (
+                pos.get("asset_id")
+                or pos.get("token_id")
+                or pos.get("assetId")
+                or pos.get("tokenId")
+                or pos.get("conditionId")
+                or ""
+            )
+            if not asset_id:
+                continue
+
+            size = float(pos.get("size", 0) or pos.get("amount", 0) or 0)
+            result[asset_id] = {
+                "size": size,
+                "side": pos.get("side", "BUY"),
+                "price": float(pos.get("avgPrice", 0) or pos.get("price", 0) or 0),
+                "market": pos.get("title", "") or pos.get("market", "") or pos.get("question", ""),
+                "asset_id": asset_id,
+                "raw": pos,
+            }
+        return result
 
     def detect_new_trades(self) -> list[dict]:
-        """Detect trades we haven't seen before."""
-        all_trades = self.fetch_target_trades()
+        """Detect new trades by comparing position snapshots."""
+        current_positions_list = self.fetch_target_positions()
+        current_positions = self._positions_to_dict(current_positions_list)
 
         new_trades = []
-        for trade in all_trades:
-            trade_id = trade.get("id") or trade.get("tradeID") or trade.get(
-                "transaction_hash"
-            )
-            if trade_id and trade_id not in self.known_trade_ids:
-                self.known_trade_ids.add(trade_id)
+
+        # Compare with last known positions
+        for asset_id, current in current_positions.items():
+            prev = self.last_positions.get(asset_id)
+
+            if prev is None:
+                # Brand new position
+                if current["size"] > 0:
+                    trade = {
+                        "asset_id": asset_id,
+                        "side": "BUY",
+                        "price": current["price"],
+                        "size": current["size"],
+                        "market": current["market"],
+                        "type": "NEW_POSITION",
+                    }
+                    new_trades.append(trade)
+                    log_event(
+                        self.logger,
+                        "NEW_POSITION",
+                        f"New position: {current['market']} | Size: {current['size']} | Price: {current['price']}",
+                    )
+            else:
+                size_diff = current["size"] - prev["size"]
+                if abs(size_diff) > 0.001:  # Meaningful change
+                    side = "BUY" if size_diff > 0 else "SELL"
+                    trade = {
+                        "asset_id": asset_id,
+                        "side": side,
+                        "price": current["price"],
+                        "size": abs(size_diff),
+                        "market": current["market"],
+                        "type": "POSITION_CHANGE",
+                    }
+                    new_trades.append(trade)
+                    log_event(
+                        self.logger,
+                        "POSITION_CHANGE",
+                        f"{side} {current['market']} | Change: {size_diff:+.4f} | Price: {current['price']}",
+                    )
+
+        # Check for closed positions (existed before, gone now)
+        for asset_id, prev in self.last_positions.items():
+            if asset_id not in current_positions and prev["size"] > 0:
+                trade = {
+                    "asset_id": asset_id,
+                    "side": "SELL",
+                    "price": prev["price"],
+                    "size": prev["size"],
+                    "market": prev["market"],
+                    "type": "POSITION_CLOSED",
+                }
                 new_trades.append(trade)
+                log_event(
+                    self.logger,
+                    "POSITION_CLOSED",
+                    f"Closed: {prev['market']} | Size: {prev['size']}",
+                )
+
+        # Update snapshot
+        self.last_positions = current_positions
 
         if new_trades:
             log_event(
                 self.logger,
                 "NEW_TRADES_DETECTED",
-                f"Found {len(new_trades)} new trades from target",
+                f"Found {len(new_trades)} position changes from target",
             )
 
         return new_trades
 
     def initialize(self) -> None:
-        """Initialize by loading current trades into known set (skip existing)."""
+        """Initialize by taking a snapshot of current positions."""
         address = self.get_target_address()
         log_event(
             self.logger,
@@ -225,16 +274,16 @@ class ProfileMonitor:
             f"Initializing monitor for target: {address}",
         )
 
-        existing_trades = self.fetch_target_trades()
-        for trade in existing_trades:
-            trade_id = trade.get("id") or trade.get("tradeID") or trade.get(
-                "transaction_hash"
-            )
-            if trade_id:
-                self.known_trade_ids.add(trade_id)
+        # Take initial snapshot of positions
+        positions = self.fetch_target_positions()
+        self.last_positions = self._positions_to_dict(positions)
 
         log_event(
             self.logger,
             "MONITOR_INIT_COMPLETE",
-            f"Loaded {len(self.known_trade_ids)} existing trades (will skip these)",
+            f"Snapshot: {len(self.last_positions)} existing positions (will track changes from here)",
         )
+        print(f"  Initial positions found: {len(self.last_positions)}")
+        for asset_id, pos in self.last_positions.items():
+            market = pos["market"] or asset_id[:20]
+            print(f"    - {market}: size={pos['size']:.4f} price={pos['price']:.4f}")

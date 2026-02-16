@@ -199,13 +199,17 @@ class CopyTradeBot:
                 poll_count += 1
 
                 if new_trades:
-                    print(f"[Poll #{poll_count}] Found {len(new_trades)} new trade(s)!")
+                    print(f"\n[Poll #{poll_count}] ** Found {len(new_trades)} new trade(s)! **")
                     for trade in new_trades:
+                        print(f"  >> {trade.get('side')} {trade.get('market', 'unknown')} | Size: {trade.get('size', 0)} | Price: {trade.get('price', 0)}")
                         self.execute_mirror_trade(trade)
-                elif poll_count % 20 == 0:
-                    # Print status every 20 polls so user knows bot is alive
-                    balance = self.safety.get_usdc_balance()
-                    print(f"[Poll #{poll_count}] Still monitoring... Balance: ${balance:.2f} | Known trades: {len(self.monitor.known_trade_ids)} | No new trades")
+                else:
+                    positions_count = len(self.monitor.last_positions)
+                    if poll_count % 10 == 0:
+                        balance = self.safety.get_usdc_balance()
+                        print(f"[Poll #{poll_count}] Monitoring... Balance: ${balance:.2f} | Tracking {positions_count} positions | No changes")
+                    elif poll_count <= 3:
+                        print(f"[Poll #{poll_count}] Checking... {positions_count} positions tracked")
 
                 consecutive_errors = 0
                 time.sleep(self.config.poll_interval_seconds)
