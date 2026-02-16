@@ -211,10 +211,16 @@ class CopyTradeBot:
                 poll_count += 1
 
                 if new_trades:
-                    print(f"\n[Poll #{poll_count}] ** Found {len(new_trades)} new trade(s)! **")
-                    for trade in new_trades:
-                        print(f"  >> {trade.get('side')} {trade.get('market', 'unknown')} | Size: {trade.get('size', 0)} | Price: {trade.get('price', 0)}")
+                    # Only process up to 3 trades per cycle to avoid API rate limits
+                    trades_to_process = new_trades[:3]
+                    if len(new_trades) > 3:
+                        print(f"\n[Poll #{poll_count}] ** Found {len(new_trades)} new trade(s), processing latest 3 **")
+                    else:
+                        print(f"\n[Poll #{poll_count}] ** Found {len(new_trades)} new trade(s)! **")
+                    for trade in trades_to_process:
+                        print(f"  >> {trade.get('side')} {trade.get('market', trade.get('title', 'unknown'))} | Size: {trade.get('size', 0)} | Price: {trade.get('price', 0)}")
                         self.execute_mirror_trade(trade)
+                        time.sleep(2)  # Delay between trades to avoid rate limits
                 else:
                     known = len(self.monitor.known_trade_ids)
                     if poll_count % 10 == 0:

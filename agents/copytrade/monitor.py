@@ -21,7 +21,7 @@ class ProfileMonitor:
         self.config = config
         self.logger = setup_audit_logger(config.log_file)
         self.data_api_url = "https://data-api.polymarket.com"
-        self.w3 = Web3(Web3.HTTPProvider("https://polygon-rpc.com"))
+        self.w3 = Web3(Web3.HTTPProvider("https://rpc.ankr.com/polygon"))
         self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
         self.target_address: Optional[str] = None
         self.known_trade_ids: set = set()
