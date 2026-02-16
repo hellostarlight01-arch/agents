@@ -9,6 +9,8 @@ from agents.application.executor import Executor
 from agents.application.creator import Creator
 from agents.copytrade.config import CopyTradeConfig
 from agents.copytrade.bot import CopyTradeBot
+from agents.arbbot.config import ArbBotConfig
+from agents.arbbot.bot import ArbBot
 
 app = typer.Typer()
 polymarket = Polymarket()
@@ -163,6 +165,22 @@ def copy_trade_status() -> None:
     bot = CopyTradeBot(config)
     status = bot.status()
     pprint(status)
+
+
+@app.command()
+def arb_trade(
+    dry_run: bool = typer.Option(True, help="Log trades without executing"),
+) -> None:
+    """
+    Start the latency arbitrage bot for Polymarket 15-min crypto markets.
+    Watches Binance prices, detects moves, places trades before odds update.
+    Configure coins and limits in .env file.
+    """
+    config = ArbBotConfig.from_env()
+    if dry_run:
+        config.dry_run = True
+    bot = ArbBot(config)
+    bot.run()
 
 
 if __name__ == "__main__":
