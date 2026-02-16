@@ -298,8 +298,8 @@ class Polymarket:
     def get_orderbook(self, token_id: str) -> OrderBookSummary:
         return self.client.get_order_book(token_id)
 
-    def get_orderbook_price(self, token_id: str) -> float:
-        return float(self.client.get_price(token_id))
+    def get_orderbook_price(self, token_id: str, side: str = "BUY") -> float:
+        return float(self.client.get_price(token_id, side))
 
     def get_address_for_private_key(self):
         account = self.w3.eth.account.from_key(str(self.private_key))

@@ -123,7 +123,7 @@ class SafetyGuard:
 
         # Check slippage against current orderbook price
         try:
-            current_price = self.polymarket.get_orderbook_price(token_id)
+            current_price = self.polymarket.get_orderbook_price(token_id, side.upper())
             price_diff = abs(current_price - target_price)
             if target_price > 0:
                 slippage = price_diff / target_price
