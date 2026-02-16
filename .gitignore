@@ -27,3 +27,5 @@ archive.zip
 .cache
 .DS_Store
 local_db*
+data/
+bot.log

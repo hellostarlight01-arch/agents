@@ -1,11 +1,10 @@
 # core polymarket api
 # https://github.com/Polymarket/py-clob-client/tree/main/examples
 
-import os
-import pdb
-import time
 import ast
-import requests
+import logging
+import os
+import time
 
 from dotenv import load_dotenv
 
@@ -31,6 +30,8 @@ from py_clob_client.order_builder.constants import BUY
 from agents.utils.objects import SimpleMarket, SimpleEvent
 
 load_dotenv()
+
+logger = logging.getLogger("polybot.polymarket")
 
 
 class Polymarket:
@@ -102,7 +103,7 @@ class Polymarket:
         usdc_approve_tx_receipt = web3.eth.wait_for_transaction_receipt(
             send_usdc_approve_tx, 600
         )
-        print(usdc_approve_tx_receipt)
+        logger.info(f"USDC approval tx: {usdc_approve_tx_receipt}")
 
         nonce = web3.eth.get_transaction_count(pub_key)
 
@@ -118,7 +119,7 @@ class Polymarket:
         ctf_approval_tx_receipt = web3.eth.wait_for_transaction_receipt(
             send_ctf_approval_tx, 600
         )
-        print(ctf_approval_tx_receipt)
+        logger.info(f"CTF approval tx: {ctf_approval_tx_receipt}")
 
         nonce = web3.eth.get_transaction_count(pub_key)
 
@@ -135,7 +136,7 @@ class Polymarket:
         usdc_approve_tx_receipt = web3.eth.wait_for_transaction_receipt(
             send_usdc_approve_tx, 600
         )
-        print(usdc_approve_tx_receipt)
+        logger.info(f"USDC approval tx: {usdc_approve_tx_receipt}")
 
         nonce = web3.eth.get_transaction_count(pub_key)
 
@@ -151,7 +152,7 @@ class Polymarket:
         ctf_approval_tx_receipt = web3.eth.wait_for_transaction_receipt(
             send_ctf_approval_tx, 600
         )
-        print(ctf_approval_tx_receipt)
+        logger.info(f"CTF approval tx: {ctf_approval_tx_receipt}")
 
         nonce = web3.eth.get_transaction_count(pub_key)
 
@@ -168,7 +169,7 @@ class Polymarket:
         usdc_approve_tx_receipt = web3.eth.wait_for_transaction_receipt(
             send_usdc_approve_tx, 600
         )
-        print(usdc_approve_tx_receipt)
+        logger.info(f"USDC approval tx: {usdc_approve_tx_receipt}")
 
         nonce = web3.eth.get_transaction_count(pub_key)
 
@@ -184,7 +185,7 @@ class Polymarket:
         ctf_approval_tx_receipt = web3.eth.wait_for_transaction_receipt(
             send_ctf_approval_tx, 600
         )
-        print(ctf_approval_tx_receipt)
+        logger.info(f"CTF approval tx: {ctf_approval_tx_receipt}")
 
     def get_all_markets(self) -> "list[SimpleMarket]":
         markets = []
@@ -195,8 +196,7 @@ class Polymarket:
                     market_data = self.map_api_to_market(market)
                     markets.append(SimpleMarket(**market_data))
                 except Exception as e:
-                    print(e)
-                    pass
+                    logger.debug(f"Skipping market: {e}")
         return markets
 
     def filter_markets_for_trading(self, markets: "list[SimpleMarket]"):
@@ -239,15 +239,13 @@ class Polymarket:
         events = []
         res = httpx.get(self.gamma_events_endpoint)
         if res.status_code == 200:
-            print(len(res.json()))
+            logger.debug(f"Fetched {len(res.json())} events from API")
             for event in res.json():
                 try:
-                    print(1)
                     event_data = self.map_api_to_event(event)
                     events.append(SimpleEvent(**event_data))
                 except Exception as e:
-                    print(e)
-                    pass
+                    logger.debug(f"Skipping event: {e}")
         return events
 
     def map_api_to_event(self, event) -> SimpleEvent:
@@ -345,10 +343,9 @@ class Polymarket:
             amount=amount,
         )
         signed_order = self.client.create_market_order(order_args)
-        print("Execute market order... signed_order ", signed_order)
+        logger.info(f"Executing market order: {signed_order}")
         resp = self.client.post_order(signed_order, orderType=OrderType.FOK)
-        print(resp)
-        print("Done!")
+        logger.info(f"Market order response: {resp}")
         return resp
 
     def get_usdc_balance(self) -> float:
@@ -358,124 +355,8 @@ class Polymarket:
         return float(balance_res / 10e5)
 
 
-def test():
-    host = "https://clob.polymarket.com"
-    key = os.getenv("POLYGON_WALLET_PRIVATE_KEY")
-    print(key)
-    chain_id = POLYGON
-
-    # Create CLOB client and get/set API credentials
-    client = ClobClient(host, key=key, chain_id=chain_id)
-    client.set_api_creds(client.create_or_derive_api_creds())
-
-    creds = ApiCreds(
-        api_key=os.getenv("CLOB_API_KEY"),
-        api_secret=os.getenv("CLOB_SECRET"),
-        api_passphrase=os.getenv("CLOB_PASS_PHRASE"),
-    )
-    chain_id = AMOY
-    client = ClobClient(host, key=key, chain_id=chain_id, creds=creds)
-
-    print(client.get_markets())
-    print(client.get_simplified_markets())
-    print(client.get_sampling_markets())
-    print(client.get_sampling_simplified_markets())
-    print(client.get_market("condition_id"))
-
-    print("Done!")
-
-
-def gamma():
-    url = "https://gamma-com"
-    markets_url = url + "/markets"
-    res = httpx.get(markets_url)
-    code = res.status_code
-    if code == 200:
-        markets: list[SimpleMarket] = []
-        data = res.json()
-        for market in data:
-            try:
-                market_data = {
-                    "id": int(market["id"]),
-                    "question": market["question"],
-                    # "start": market['startDate'],
-                    "end": market["endDate"],
-                    "description": market["description"],
-                    "active": market["active"],
-                    "deployed": market["deployed"],
-                    "funded": market["funded"],
-                    # "orderMinSize": float(market['orderMinSize']) if market['orderMinSize'] else 0,
-                    # "orderPriceMinTickSize": float(market['orderPriceMinTickSize']),
-                    "rewardsMinSize": float(market["rewardsMinSize"]),
-                    "rewardsMaxSpread": float(market["rewardsMaxSpread"]),
-                    "volume": float(market["volume"]),
-                    "spread": float(market["spread"]),
-                    "outcome_a": str(market["outcomes"][0]),
-                    "outcome_b": str(market["outcomes"][1]),
-                    "outcome_a_price": str(market["outcomePrices"][0]),
-                    "outcome_b_price": str(market["outcomePrices"][1]),
-                }
-                markets.append(SimpleMarket(**market_data))
-            except Exception as err:
-                print(f"error {err} for market {id}")
-        pdb.set_trace()
-    else:
-        raise Exception()
-
-
-def main():
-    # auth()
-    # test()
-    # gamma()
-    print(Polymarket().get_all_events())
-
-
 if __name__ == "__main__":
     load_dotenv()
-
     p = Polymarket()
-
-    # k = p.get_api_key()
-    # m = p.get_sampling_simplified_markets()
-
-    # print(m)
-    # m = p.get_market('11015470973684177829729219287262166995141465048508201953575582100565462316088')
-
-    # t = m[0]['token_id']
-    # o = p.get_orderbook(t)
-    # pdb.set_trace()
-
-    """
-    
-    (Pdb) pprint(o)
-            OrderBookSummary(
-                market='0x26ee82bee2493a302d21283cb578f7e2fff2dd15743854f53034d12420863b55', 
-                asset_id='11015470973684177829729219287262166995141465048508201953575582100565462316088', 
-                bids=[OrderSummary(price='0.01', size='600005'), OrderSummary(price='0.02', size='200000'), ...
-                asks=[OrderSummary(price='0.99', size='100000'), OrderSummary(price='0.98', size='200000'), ...
-            )
-    
-    """
-
-    # https://polygon-rpc.com
-
-    test_market_token_id = (
-        "101669189743438912873361127612589311253202068943959811456820079057046819967115"
-    )
-    test_market_data = p.get_market(test_market_token_id)
-
-    # test_size = 0.0001
-    test_size = 1
-    test_side = BUY
-    test_price = float(ast.literal_eval(test_market_data["outcome_prices"])[0])
-
-    # order = p.execute_order(
-    #    test_price,
-    #    test_size,
-    #    test_side,
-    #    test_market_token_id,
-    # )
-
-    # order = p.execute_market_order(test_price, test_market_token_id)
-
     balance = p.get_usdc_balance()
+    logger.info(f"USDC Balance: {balance}")
