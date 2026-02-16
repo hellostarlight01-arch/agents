@@ -121,30 +121,9 @@ class SafetyGuard:
                 reason=f"Trade amount too small after caps: ${capped_amount}",
             )
 
-        # Check slippage against current orderbook price
-        try:
-            current_price = self.polymarket.get_orderbook_price(token_id, side.upper())
-            price_diff = abs(current_price - target_price)
-            if target_price > 0:
-                slippage = price_diff / target_price
-            else:
-                slippage = 1.0
-
-            if slippage > self.config.max_slippage_pct:
-                return TradeValidation(
-                    valid=False,
-                    reason=(
-                        f"Slippage too high: {slippage:.2%} "
-                        f"(target: {target_price}, current: {current_price}, "
-                        f"max: {self.config.max_slippage_pct:.2%})"
-                    ),
-                )
-        except Exception as e:
-            log_event(
-                self.logger,
-                "SLIPPAGE_CHECK_SKIPPED",
-                f"Could not check slippage for {token_id}: {e} — allowing trade",
-            )
+        # NOTE: Slippage check removed — CLOB API get_price() causes rate limits.
+        # We trust the target's trade price directly. The max_trade_usd cap and
+        # daily loss circuit breaker provide sufficient protection.
 
         log_event(
             self.logger,
