@@ -66,10 +66,8 @@ class PolymarketRAG:
 
         # create vector db
         def metadata_func(record: dict, metadata: dict) -> dict:
-
-            metadata["id"] = record.get("id")
-            metadata["markets"] = record.get("markets")
-
+            metadata["id"] = str(record.get("id", ""))
+            metadata["markets"] = str(record.get("markets", ""))
             return metadata
 
         loader = JSONLoader(
@@ -80,6 +78,9 @@ class PolymarketRAG:
             metadata_func=metadata_func,
         )
         loaded_docs = loader.load()
+        if not loaded_docs:
+            print("[WARN] No documents loaded from events JSON")
+            return []
         embedding_function = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         vector_db_directory = f"{local_events_directory}/chroma"
         local_db = Chroma.from_documents(
@@ -95,18 +96,25 @@ class PolymarketRAG:
         if not os.path.isdir(local_events_directory):
             os.mkdir(local_events_directory)
         local_file_path = f"{local_events_directory}/markets.json"
+        # Ensure markets are serializable dicts
+        serializable = []
+        for m in markets:
+            if hasattr(m, 'dict'):
+                serializable.append(m.dict())
+            elif isinstance(m, dict):
+                serializable.append(m)
+            else:
+                serializable.append(vars(m))
         with open(local_file_path, "w+") as output_file:
-            json.dump(markets, output_file)
+            json.dump(serializable, output_file)
 
         # create vector db
         def metadata_func(record: dict, metadata: dict) -> dict:
-
-            metadata["id"] = record.get("id")
-            metadata["outcomes"] = record.get("outcomes")
-            metadata["outcome_prices"] = record.get("outcome_prices")
-            metadata["question"] = record.get("question")
-            metadata["clob_token_ids"] = record.get("clob_token_ids")
-
+            metadata["id"] = str(record.get("id", ""))
+            metadata["outcomes"] = str(record.get("outcomes", "[]"))
+            metadata["outcome_prices"] = str(record.get("outcome_prices", "[]"))
+            metadata["question"] = str(record.get("question", ""))
+            metadata["clob_token_ids"] = str(record.get("clob_token_ids", "[]"))
             return metadata
 
         loader = JSONLoader(
@@ -117,6 +125,9 @@ class PolymarketRAG:
             metadata_func=metadata_func,
         )
         loaded_docs = loader.load()
+        if not loaded_docs:
+            print("[WARN] No documents loaded from markets JSON")
+            return []
         embedding_function = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         vector_db_directory = f"{local_events_directory}/chroma"
         local_db = Chroma.from_documents(

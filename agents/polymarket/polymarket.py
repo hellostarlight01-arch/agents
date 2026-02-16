@@ -349,7 +349,22 @@ class Polymarket:
         )
 
     def execute_market_order(self, market, amount) -> str:
-        token_id = ast.literal_eval(market[0].dict()["metadata"]["clob_token_ids"])[1]
+        try:
+            doc = market[0] if isinstance(market, (list, tuple)) else market
+            doc_dict = doc.dict() if hasattr(doc, 'dict') else doc
+            metadata = doc_dict.get("metadata", doc_dict) if isinstance(doc_dict, dict) else {}
+            clob_ids_raw = metadata.get("clob_token_ids", "[]")
+            clob_ids = ast.literal_eval(str(clob_ids_raw))
+            if isinstance(clob_ids, list) and len(clob_ids) > 1:
+                token_id = clob_ids[1]
+            elif isinstance(clob_ids, list) and len(clob_ids) == 1:
+                token_id = clob_ids[0]
+            else:
+                raise ValueError(f"No valid token IDs found in metadata: {clob_ids_raw}")
+        except Exception as e:
+            logger.error(f"Failed to extract token_id from market metadata: {e}")
+            raise
+
         order_args = MarketOrderArgs(
             token_id=token_id,
             amount=amount,

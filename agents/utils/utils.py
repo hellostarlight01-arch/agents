@@ -48,12 +48,10 @@ def preprocess_local_json(file_path: str, preprocessor_function: function) -> No
 
 
 def metadata_func(record: dict, metadata: dict) -> dict:
-    print("record:", record)
-    print("meta:", metadata)
     for k, v in record.items():
         metadata[k] = v
 
-    del metadata["description"]
-    del metadata["events"]
+    metadata.pop("description", None)
+    metadata.pop("events", None)
 
     return metadata

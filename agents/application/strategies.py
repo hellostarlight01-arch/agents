@@ -139,7 +139,8 @@ class OneBestTradeStrategy(BaseStrategy):
     ) -> Optional[TradeSignal]:
         """Parse LLM trade output into a TradeSignal."""
         try:
-            market_doc = market_object[0].dict() if hasattr(market_object[0], 'dict') else market_object[0]
+            doc = market_object[0] if isinstance(market_object, (list, tuple)) else market_object
+            market_doc = doc.dict() if hasattr(doc, 'dict') else doc
             if isinstance(market_doc, dict) and "metadata" in market_doc:
                 metadata = market_doc["metadata"]
             else:

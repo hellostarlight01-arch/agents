@@ -140,12 +140,26 @@ class Executor:
     ) -> "list[SimpleMarket]":
         markets = []
         for e in filtered_events:
-            data = json.loads(e[0].json())
-            market_ids = data["metadata"]["markets"].split(",")
-            for market_id in market_ids:
-                market_data = self.gamma.get_market(market_id)
-                formatted_market_data = self.polymarket.map_api_to_market(market_data)
-                markets.append(formatted_market_data)
+            try:
+                doc = e[0] if isinstance(e, tuple) else e
+                data = json.loads(doc.json()) if hasattr(doc, 'json') else doc
+                metadata = data.get("metadata", data) if isinstance(data, dict) else {}
+                markets_str = metadata.get("markets", "")
+                if not markets_str:
+                    continue
+                market_ids = [m.strip() for m in str(markets_str).split(",") if m.strip()]
+                for market_id in market_ids:
+                    try:
+                        market_data = self.gamma.get_market(market_id)
+                        if market_data:
+                            formatted_market_data = self.polymarket.map_api_to_market(market_data)
+                            markets.append(formatted_market_data)
+                    except Exception as ex:
+                        print(f"[WARN] Failed to fetch market {market_id}: {ex}")
+                        continue
+            except Exception as ex:
+                print(f"[WARN] Failed to process event: {ex}")
+                continue
         return markets
 
     def filter_markets(self, markets) -> "list[tuple]":
@@ -156,12 +170,13 @@ class Executor:
         return self.chroma.markets(markets, prompt)
 
     def source_best_trade(self, market_object) -> str:
-        market_document = market_object[0].dict()
-        market = market_document["metadata"]
-        outcome_prices = ast.literal_eval(market["outcome_prices"])
-        outcomes = ast.literal_eval(market["outcomes"])
-        question = market["question"]
-        description = market_document["page_content"]
+        doc = market_object[0] if isinstance(market_object, tuple) else market_object
+        market_document = doc.dict() if hasattr(doc, 'dict') else doc
+        market = market_document.get("metadata", market_document)
+        outcome_prices = ast.literal_eval(str(market.get("outcome_prices", "[]")))
+        outcomes = ast.literal_eval(str(market.get("outcomes", "[]")))
+        question = market.get("question", "Unknown market")
+        description = market_document.get("page_content", market.get("description", ""))
 
         prompt = self.prompter.superforecaster(question, description, outcomes)
         print()
