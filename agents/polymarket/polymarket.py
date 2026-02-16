@@ -43,7 +43,7 @@ class Polymarket:
 
         self.chain_id = 137  # POLYGON
         self.private_key = os.getenv("POLYGON_WALLET_PRIVATE_KEY")
-        self.polygon_rpc = "https://polygon.llamarpc.com"
+        self.polygon_rpc = "https://rpc.ankr.com/polygon"
         self.w3 = Web3(Web3.HTTPProvider(self.polygon_rpc))
 
         self.exchange_address = "0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e"

@@ -11,10 +11,10 @@ from agents.copytrade.logger import log_event, setup_audit_logger
 
 # Multiple free Polygon RPC endpoints for fallback
 RPC_ENDPOINTS = [
-    "https://polygon.llamarpc.com",
     "https://rpc.ankr.com/polygon",
     "https://polygon-bor-rpc.publicnode.com",
     "https://polygon.drpc.org",
+    "https://polygon-rpc.com",
 ]
 
 
