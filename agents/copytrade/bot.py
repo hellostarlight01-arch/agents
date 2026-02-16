@@ -1,4 +1,5 @@
 import ast
+import re
 import time
 
 from py_clob_client.clob_types import MarketOrderArgs, OrderArgs, OrderType
@@ -55,9 +56,23 @@ class CopyTradeBot:
             or "Unknown Market"
         )
 
-        # Skip markets matching filter keywords (e.g. "15 minutes" short-term arb)
+        # Skip short-term arb markets:
+        # 1. Keyword matches (e.g. "15 minutes", "5 minutes")
+        # 2. Time-range patterns (e.g. "9:05PM-9:10PM", "2:30 PM - 2:45 PM")
+        market_lower = market_question.lower()
+        time_range_pattern = re.compile(
+            r"\d{1,2}:\d{2}\s*[ap]m\s*[-–]\s*\d{1,2}:\d{2}\s*[ap]m",
+            re.IGNORECASE,
+        )
+        if time_range_pattern.search(market_question):
+            log_event(
+                self.logger,
+                "TRADE_SKIPPED",
+                f"Skipped (short-term time range): {side} {market_question}",
+            )
+            return
+
         if self.config.skip_market_keywords:
-            market_lower = market_question.lower()
             for keyword in self.config.skip_market_keywords:
                 if keyword in market_lower:
                     log_event(
