@@ -38,23 +38,35 @@ class CopyTradeBot:
         """Execute a single mirror trade based on a target's trade."""
         token_id = (
             trade.get("asset_id")
+            or trade.get("asset")
             or trade.get("token_id")
-            or trade.get("market")
+            or trade.get("tokenId")
+            or trade.get("conditionId")
             or ""
         )
         side = trade.get("side", "BUY").upper()
-        price = float(trade.get("price", 0))
-        target_size = float(trade.get("size", 0))
+        price = float(trade.get("price", 0) or 0)
+        target_size = float(trade.get("size", 0) or 0)
+        market_question = (
+            trade.get("title")
+            or trade.get("market")
+            or trade.get("question")
+            or token_id[:20]
+            or "Unknown Market"
+        )
 
         if not token_id:
+            # Log but still notify on Telegram about the detected trade
             log_event(
                 self.logger,
-                "SKIP_TRADE",
-                f"No token_id found in trade: {trade}",
+                "TRADE_NO_TOKEN",
+                f"Trade detected but no token_id: {market_question} | Side: {side}",
+            )
+            self.telegram.notify_bot_event(
+                "TRADE_DETECTED",
+                f"Target traded: {side} {market_question}\nPrice: {price}\nSize: {target_size}\n(No token_id - cannot mirror)",
             )
             return
-
-        market_question = trade.get("market", token_id[:20])
         usdc_balance = self.safety.get_usdc_balance()
 
         # Validate trade through safety guard
