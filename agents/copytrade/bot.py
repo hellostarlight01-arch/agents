@@ -204,12 +204,12 @@ class CopyTradeBot:
                         print(f"  >> {trade.get('side')} {trade.get('market', 'unknown')} | Size: {trade.get('size', 0)} | Price: {trade.get('price', 0)}")
                         self.execute_mirror_trade(trade)
                 else:
-                    positions_count = len(self.monitor.last_positions)
+                    known = len(self.monitor.known_trade_ids)
                     if poll_count % 10 == 0:
                         balance = self.safety.get_usdc_balance()
-                        print(f"[Poll #{poll_count}] Monitoring... Balance: ${balance:.2f} | Tracking {positions_count} positions | No changes")
+                        print(f"[Poll #{poll_count}] Monitoring... Balance: ${balance:.2f} | Known trades: {known} | No new trades")
                     elif poll_count <= 3:
-                        print(f"[Poll #{poll_count}] Checking... {positions_count} positions tracked")
+                        print(f"[Poll #{poll_count}] Checking... {known} trades tracked")
 
                 consecutive_errors = 0
                 time.sleep(self.config.poll_interval_seconds)

@@ -8,95 +8,22 @@ from agents.copytrade.logger import log_event, setup_audit_logger
 
 
 class ProfileMonitor:
-    """Monitors a Polymarket profile and detects new trades by tracking position changes."""
+    """Monitors a Polymarket profile and detects new trades via data API."""
 
     def __init__(self, config: CopyTradeConfig) -> None:
         self.config = config
         self.logger = setup_audit_logger(config.log_file)
-        self.gamma_url = "https://gamma-api.polymarket.com"
-        self.clob_url = "https://clob.polymarket.com"
+        self.data_api_url = "https://data-api.polymarket.com"
         self.target_address: Optional[str] = None
+        self.proxy_wallet: Optional[str] = None
         self.known_trade_ids: set = set()
-        # Position tracking: {asset_id: {"size": float, "side": str, ...}}
-        self.last_positions: dict = {}
-
-    def resolve_profile_to_address(self) -> str:
-        """Resolve a Polymarket profile URL/username to a wallet address."""
-        username = self.config.extract_username_from_url()
-        log_event(
-            self.logger, "RESOLVE_PROFILE", f"Resolving username: {username}"
-        )
-
-        # Try Gamma API profile endpoint
-        try:
-            url = f"{self.gamma_url}/profiles/{username}"
-            resp = httpx.get(url, timeout=15)
-            if resp.status_code == 200:
-                data = resp.json()
-                address = data.get("address") or data.get("proxyWallet")
-                if address:
-                    self.target_address = address
-                    log_event(
-                        self.logger,
-                        "PROFILE_RESOLVED",
-                        f"Username {username} -> {address}",
-                    )
-                    return address
-        except Exception as e:
-            log_event(
-                self.logger,
-                "RESOLVE_PROFILE_ERROR",
-                f"Gamma profiles endpoint failed: {e}",
-            )
-
-        # Fallback: try the users search endpoint
-        try:
-            url = f"{self.gamma_url}/users"
-            params = {"username": username}
-            resp = httpx.get(url, params=params, timeout=15)
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, list) and len(data) > 0:
-                    address = data[0].get("address") or data[0].get(
-                        "proxyWallet"
-                    )
-                    if address:
-                        self.target_address = address
-                        log_event(
-                            self.logger,
-                            "PROFILE_RESOLVED",
-                            f"Username {username} -> {address}",
-                        )
-                        return address
-                elif isinstance(data, dict):
-                    address = data.get("address") or data.get("proxyWallet")
-                    if address:
-                        self.target_address = address
-                        log_event(
-                            self.logger,
-                            "PROFILE_RESOLVED",
-                            f"Username {username} -> {address}",
-                        )
-                        return address
-        except Exception as e:
-            log_event(
-                self.logger,
-                "RESOLVE_PROFILE_ERROR",
-                f"Gamma users endpoint failed: {e}",
-            )
-
-        raise ValueError(
-            f"Could not resolve Polymarket profile for username: {username}. "
-            "You can set COPY_TARGET_ADDRESS directly in .env as a fallback."
-        )
 
     def get_target_address(self) -> str:
-        """Get the target address, resolving from profile URL if needed."""
+        """Get the target address from env."""
         if self.target_address:
             return self.target_address
 
         import os
-
         direct_address = os.getenv("COPY_TARGET_ADDRESS", "")
         if direct_address:
             self.target_address = direct_address
@@ -107,183 +34,170 @@ class ProfileMonitor:
             )
             return direct_address
 
-        return self.resolve_profile_to_address()
+        raise ValueError("COPY_TARGET_ADDRESS must be set in .env")
 
-    def fetch_target_positions(self) -> list[dict]:
-        """Fetch current positions from the target address via multiple endpoints."""
+    def resolve_proxy_wallet(self) -> str:
+        """Find the proxy wallet by checking recent trades from the data API."""
+        if self.proxy_wallet:
+            return self.proxy_wallet
+
         address = self.get_target_address()
-        positions = []
 
-        # Try Gamma positions endpoint
+        # Try the address directly as maker
         try:
-            url = f"{self.gamma_url}/positions"
-            params = {"user": address}
+            url = f"{self.data_api_url}/trades"
+            params = {"maker": address, "limit": 1}
+            resp = httpx.get(url, params=params, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and len(data) > 0:
+                    self.proxy_wallet = address
+                    log_event(self.logger, "PROXY_RESOLVED", f"Address works directly: {address}")
+                    return address
+
+                # If no results, look up proxy wallet from chain
+                proxy = data[0].get("proxyWallet", "") if data else ""
+                if proxy:
+                    self.proxy_wallet = proxy
+                    log_event(self.logger, "PROXY_RESOLVED", f"Found proxy: {proxy}")
+                    return proxy
+        except Exception as e:
+            log_event(self.logger, "PROXY_RESOLVE_ERROR", str(e))
+
+        # Try finding proxy wallet via on-chain lookup
+        try:
+            from web3 import Web3
+            w3 = Web3(Web3.HTTPProvider("https://polygon-rpc.com"))
+
+            # Polymarket proxy factory - try to get proxy for the address
+            # Check recent transactions from the address to Polymarket exchange
+            exchange = "0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e"
+
+            # Try the address as proxy wallet in the data API
+            url = f"{self.data_api_url}/trades"
+            for param_name in ["maker", "taker"]:
+                params = {param_name: address, "limit": 1}
+                resp = httpx.get(url, params=params, timeout=15)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        # Check if this trade has a proxyWallet field
+                        proxy = data[0].get("proxyWallet", "")
+                        if proxy and proxy.lower() != address.lower():
+                            self.proxy_wallet = proxy
+                            log_event(self.logger, "PROXY_RESOLVED", f"Found proxy from trade: {proxy}")
+                            return proxy
+        except Exception as e:
+            log_event(self.logger, "PROXY_RESOLVE_ERROR", str(e))
+
+        # Default to the address itself
+        self.proxy_wallet = address
+        return address
+
+    def fetch_target_trades(self) -> list[dict]:
+        """Fetch recent trades from the data API."""
+        address = self.resolve_proxy_wallet()
+        all_trades = []
+
+        # Fetch as maker
+        try:
+            url = f"{self.data_api_url}/trades"
+            params = {"maker": address, "limit": 50}
             resp = httpx.get(url, params=params, timeout=15)
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, list):
-                    positions = data
-                    log_event(
-                        self.logger,
-                        "FETCH_POSITIONS",
-                        f"Gamma returned {len(positions)} positions",
-                    )
+                    all_trades.extend(data)
         except Exception as e:
-            log_event(
-                self.logger,
-                "FETCH_POSITIONS_ERROR",
-                f"Gamma positions failed: {e}",
-            )
+            log_event(self.logger, "FETCH_TRADES_ERROR", f"Data API maker failed: {e}")
 
-        # Also try with checksummed address
-        if not positions:
-            try:
-                from web3 import Web3
-                checksummed = Web3.to_checksum_address(address)
-                url = f"{self.gamma_url}/positions"
-                params = {"user": checksummed}
-                resp = httpx.get(url, params=params, timeout=15)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, list):
-                        positions = data
-                        log_event(
-                            self.logger,
-                            "FETCH_POSITIONS",
-                            f"Gamma (checksummed) returned {len(positions)} positions",
-                        )
-            except Exception as e:
-                log_event(
-                    self.logger,
-                    "FETCH_POSITIONS_ERROR",
-                    f"Gamma checksummed positions failed: {e}",
-                )
+        # Fetch as taker
+        try:
+            url = f"{self.data_api_url}/trades"
+            params = {"taker": address, "limit": 50}
+            resp = httpx.get(url, params=params, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    all_trades.extend(data)
+        except Exception as e:
+            log_event(self.logger, "FETCH_TRADES_ERROR", f"Data API taker failed: {e}")
 
-        return positions
+        # Also check with the original address if proxy is different
+        original = self.get_target_address()
+        if original.lower() != address.lower():
+            for role in ["maker", "taker"]:
+                try:
+                    url = f"{self.data_api_url}/trades"
+                    params = {role: original, "limit": 50}
+                    resp = httpx.get(url, params=params, timeout=15)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if isinstance(data, list):
+                            all_trades.extend(data)
+                except Exception as e:
+                    log_event(self.logger, "FETCH_TRADES_ERROR", f"Data API {role} (original) failed: {e}")
 
-    def _positions_to_dict(self, positions: list[dict]) -> dict:
-        """Convert positions list to a dict keyed by asset/token ID."""
-        result = {}
-        for pos in positions:
-            # Try different field names for the asset identifier
-            asset_id = (
-                pos.get("asset_id")
-                or pos.get("token_id")
-                or pos.get("assetId")
-                or pos.get("tokenId")
-                or pos.get("conditionId")
-                or ""
-            )
-            if not asset_id:
-                continue
+        # Deduplicate
+        seen = set()
+        unique = []
+        for trade in all_trades:
+            tid = trade.get("id") or trade.get("transactionHash") or trade.get("tradeID")
+            if tid and tid not in seen:
+                seen.add(tid)
+                unique.append(trade)
 
-            size = float(pos.get("size", 0) or pos.get("amount", 0) or 0)
-            result[asset_id] = {
-                "size": size,
-                "side": pos.get("side", "BUY"),
-                "price": float(pos.get("avgPrice", 0) or pos.get("price", 0) or 0),
-                "market": pos.get("title", "") or pos.get("market", "") or pos.get("question", ""),
-                "asset_id": asset_id,
-                "raw": pos,
-            }
-        return result
+        return unique
 
     def detect_new_trades(self) -> list[dict]:
-        """Detect new trades by comparing position snapshots."""
-        current_positions_list = self.fetch_target_positions()
-        current_positions = self._positions_to_dict(current_positions_list)
+        """Detect trades we haven't seen before."""
+        all_trades = self.fetch_target_trades()
 
         new_trades = []
-
-        # Compare with last known positions
-        for asset_id, current in current_positions.items():
-            prev = self.last_positions.get(asset_id)
-
-            if prev is None:
-                # Brand new position
-                if current["size"] > 0:
-                    trade = {
-                        "asset_id": asset_id,
-                        "side": "BUY",
-                        "price": current["price"],
-                        "size": current["size"],
-                        "market": current["market"],
-                        "type": "NEW_POSITION",
-                    }
-                    new_trades.append(trade)
-                    log_event(
-                        self.logger,
-                        "NEW_POSITION",
-                        f"New position: {current['market']} | Size: {current['size']} | Price: {current['price']}",
-                    )
-            else:
-                size_diff = current["size"] - prev["size"]
-                if abs(size_diff) > 0.001:  # Meaningful change
-                    side = "BUY" if size_diff > 0 else "SELL"
-                    trade = {
-                        "asset_id": asset_id,
-                        "side": side,
-                        "price": current["price"],
-                        "size": abs(size_diff),
-                        "market": current["market"],
-                        "type": "POSITION_CHANGE",
-                    }
-                    new_trades.append(trade)
-                    log_event(
-                        self.logger,
-                        "POSITION_CHANGE",
-                        f"{side} {current['market']} | Change: {size_diff:+.4f} | Price: {current['price']}",
-                    )
-
-        # Check for closed positions (existed before, gone now)
-        for asset_id, prev in self.last_positions.items():
-            if asset_id not in current_positions and prev["size"] > 0:
-                trade = {
-                    "asset_id": asset_id,
-                    "side": "SELL",
-                    "price": prev["price"],
-                    "size": prev["size"],
-                    "market": prev["market"],
-                    "type": "POSITION_CLOSED",
-                }
+        for trade in all_trades:
+            trade_id = trade.get("id") or trade.get("transactionHash") or trade.get("tradeID")
+            if trade_id and trade_id not in self.known_trade_ids:
+                self.known_trade_ids.add(trade_id)
                 new_trades.append(trade)
-                log_event(
-                    self.logger,
-                    "POSITION_CLOSED",
-                    f"Closed: {prev['market']} | Size: {prev['size']}",
-                )
-
-        # Update snapshot
-        self.last_positions = current_positions
 
         if new_trades:
             log_event(
                 self.logger,
                 "NEW_TRADES_DETECTED",
-                f"Found {len(new_trades)} position changes from target",
+                f"Found {len(new_trades)} new trades from target",
             )
 
         return new_trades
 
     def initialize(self) -> None:
-        """Initialize by taking a snapshot of current positions."""
-        address = self.get_target_address()
+        """Initialize by loading current trades into known set (skip existing)."""
+        address = self.resolve_proxy_wallet()
         log_event(
             self.logger,
             "MONITOR_INIT",
             f"Initializing monitor for target: {address}",
         )
 
-        # Take initial snapshot of positions
-        positions = self.fetch_target_positions()
-        self.last_positions = self._positions_to_dict(positions)
+        existing_trades = self.fetch_target_trades()
+        for trade in existing_trades:
+            trade_id = trade.get("id") or trade.get("transactionHash") or trade.get("tradeID")
+            if trade_id:
+                self.known_trade_ids.add(trade_id)
+
+        # Print summary of recent trades
+        print(f"  Proxy wallet: {address}")
+        print(f"  Loaded {len(self.known_trade_ids)} existing trades (will skip these)")
+        if existing_trades:
+            print(f"  Recent trades from target:")
+            for trade in existing_trades[:5]:
+                side = trade.get("side", "?")
+                title = trade.get("title", "") or trade.get("market", "unknown")
+                size = trade.get("size", "?")
+                price = trade.get("price", "?")
+                print(f"    - {side} {title} | Size: {size} | Price: {price}")
 
         log_event(
             self.logger,
             "MONITOR_INIT_COMPLETE",
-            f"Snapshot: {len(self.last_positions)} existing positions (will track changes from here)",
+            f"Loaded {len(self.known_trade_ids)} existing trades (will skip these)",
         )
-        print(f"  Initial positions found: {len(self.last_positions)}")
-        for asset_id, pos in self.last_positions.items():
-            market = pos["market"] or asset_id[:20]
-            print(f"    - {market}: size={pos['size']:.4f} price={pos['price']:.4f}")
