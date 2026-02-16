@@ -1,3 +1,4 @@
+import os
 import httpx
 import json
 
@@ -10,6 +11,13 @@ class GammaMarketClient:
         self.gamma_url = "https://gamma-api.polymarket.com"
         self.gamma_markets_endpoint = self.gamma_url + "/markets"
         self.gamma_events_endpoint = self.gamma_url + "/events"
+
+    def _http_client(self):
+        """Return an httpx client with proxy if configured."""
+        proxy = os.getenv("PROXY_URL", "")
+        if proxy:
+            return httpx.Client(proxy=proxy)
+        return httpx.Client()
 
     def parse_pydantic_market(self, market_object: dict) -> Market:
         try:
@@ -76,7 +84,8 @@ class GammaMarketClient:
                 'Cannot use "parse_pydantic" and "local_file" params simultaneously.'
             )
 
-        response = httpx.get(self.gamma_markets_endpoint, params=querystring_params)
+        with self._http_client() as client:
+            response = client.get(self.gamma_markets_endpoint, params=querystring_params)
         if response.status_code == 200:
             data = response.json()
             if local_file_path is not None:
@@ -101,7 +110,8 @@ class GammaMarketClient:
                 'Cannot use "parse_pydantic" and "local_file" params simultaneously.'
             )
 
-        response = httpx.get(self.gamma_events_endpoint, params=querystring_params)
+        with self._http_client() as client:
+            response = client.get(self.gamma_events_endpoint, params=querystring_params)
         if response.status_code == 200:
             data = response.json()
             if local_file_path is not None:
@@ -177,7 +187,8 @@ class GammaMarketClient:
     def get_market(self, market_id: int) -> dict():
         url = self.gamma_markets_endpoint + "/" + str(market_id)
         print(url)
-        response = httpx.get(url)
+        with self._http_client() as client:
+            response = client.get(url)
         return response.json()
 
 

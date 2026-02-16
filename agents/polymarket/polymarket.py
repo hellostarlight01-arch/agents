@@ -14,6 +14,8 @@ from web3.middleware import geth_poa_middleware
 
 import httpx
 from py_clob_client.client import ClobClient
+# Proxy support for geo-restricted access
+PROXY_URL = os.getenv("PROXY_URL", "")  # e.g. socks5://user:pass@ip:port
 from py_clob_client.clob_types import ApiCreds
 from py_clob_client.constants import AMOY, POLYGON
 from py_order_utils.builders import OrderBuilder
@@ -187,9 +189,17 @@ class Polymarket:
         )
         logger.info(f"CTF approval tx: {ctf_approval_tx_receipt}")
 
+    def _http_client(self):
+        """Return an httpx client with proxy if configured."""
+        proxy = os.getenv("PROXY_URL", "")
+        if proxy:
+            return httpx.Client(proxy=proxy)
+        return httpx.Client()
+
     def get_all_markets(self) -> "list[SimpleMarket]":
         markets = []
-        res = httpx.get(self.gamma_markets_endpoint)
+        with self._http_client() as client:
+            res = client.get(self.gamma_markets_endpoint)
         if res.status_code == 200:
             for market in res.json():
                 try:
@@ -208,7 +218,8 @@ class Polymarket:
 
     def get_market(self, token_id: str) -> SimpleMarket:
         params = {"clob_token_ids": token_id}
-        res = httpx.get(self.gamma_markets_endpoint, params=params)
+        with self._http_client() as client:
+            res = client.get(self.gamma_markets_endpoint, params=params)
         if res.status_code == 200:
             data = res.json()
             market = data[0]
@@ -237,7 +248,8 @@ class Polymarket:
 
     def get_all_events(self) -> "list[SimpleEvent]":
         events = []
-        res = httpx.get(self.gamma_events_endpoint)
+        with self._http_client() as client:
+            res = client.get(self.gamma_events_endpoint)
         if res.status_code == 200:
             logger.debug(f"Fetched {len(res.json())} events from API")
             for event in res.json():
