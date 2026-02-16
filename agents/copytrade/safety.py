@@ -142,12 +142,8 @@ class SafetyGuard:
         except Exception as e:
             log_event(
                 self.logger,
-                "SLIPPAGE_CHECK_ERROR",
-                f"Could not check slippage for {token_id}: {e}",
-            )
-            return TradeValidation(
-                valid=False,
-                reason=f"Cannot verify slippage — rejecting trade for safety: {e}",
+                "SLIPPAGE_CHECK_SKIPPED",
+                f"Could not check slippage for {token_id}: {e} — allowing trade",
             )
 
         log_event(

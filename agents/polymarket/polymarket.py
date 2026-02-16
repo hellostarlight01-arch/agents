@@ -299,7 +299,10 @@ class Polymarket:
         return self.client.get_order_book(token_id)
 
     def get_orderbook_price(self, token_id: str, side: str = "BUY") -> float:
-        return float(self.client.get_price(token_id, side))
+        result = self.client.get_price(token_id, side)
+        if isinstance(result, dict):
+            return float(result.get("price", 0) or result.get("mid", 0) or 0)
+        return float(result)
 
     def get_address_for_private_key(self):
         account = self.w3.eth.account.from_key(str(self.private_key))
