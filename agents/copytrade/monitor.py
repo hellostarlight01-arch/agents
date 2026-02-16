@@ -4,6 +4,7 @@ from typing import Optional
 
 import httpx
 from web3 import Web3
+from web3.middleware import geth_poa_middleware
 
 from agents.copytrade.config import CopyTradeConfig
 from agents.copytrade.logger import log_event, setup_audit_logger
@@ -24,6 +25,7 @@ class ProfileMonitor:
         self.logger = setup_audit_logger(config.log_file)
         self.data_api_url = "https://data-api.polymarket.com"
         self.w3 = Web3(Web3.HTTPProvider("https://polygon-rpc.com"))
+        self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
         self.target_address: Optional[str] = None
         self.proxy_wallet: Optional[str] = None
         self.known_trade_ids: set = set()

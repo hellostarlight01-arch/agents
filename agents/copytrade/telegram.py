@@ -74,3 +74,7 @@ class TelegramNotifier:
             self.send(f"🔴 <b>Bot Shutdown (too many errors)</b>\n{details}")
         elif event == "BOT_ERROR":
             self.send(f"⚠️ <b>Error</b>\n{details}")
+        elif event == "TRADE_DETECTED":
+            self.send(f"👁 <b>Trade Detected</b>\n{details}")
+        else:
+            self.send(f"📋 <b>{event}</b>\n{details}")
