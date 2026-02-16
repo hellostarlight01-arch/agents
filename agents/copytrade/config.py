@@ -19,6 +19,7 @@ class CopyTradeConfig:
     retry_backoff_base: float = 2.0
     log_file: str = "copytrade_audit.log"
     dry_run: bool = False
+    skip_market_keywords: list = None  # Markets containing these words are skipped
 
     @classmethod
     def from_env(cls) -> "CopyTradeConfig":
@@ -62,6 +63,10 @@ class CopyTradeConfig:
         dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
         log_file = os.getenv("COPYTRADE_LOG_FILE", "copytrade_audit.log")
 
+        # Parse skip keywords: comma-separated list of market name fragments to ignore
+        skip_raw = os.getenv("SKIP_MARKET_KEYWORDS", "")
+        skip_keywords = [k.strip().lower() for k in skip_raw.split(",") if k.strip()]
+
         return cls(
             target_profile_url=target_url,
             max_trade_pct=max_trade_pct,
@@ -71,6 +76,7 @@ class CopyTradeConfig:
             max_slippage_pct=max_slippage,
             log_file=log_file,
             dry_run=dry_run,
+            skip_market_keywords=skip_keywords,
         )
 
     def extract_username_from_url(self) -> str:

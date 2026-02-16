@@ -55,6 +55,18 @@ class CopyTradeBot:
             or "Unknown Market"
         )
 
+        # Skip markets matching filter keywords (e.g. "15 minutes" short-term arb)
+        if self.config.skip_market_keywords:
+            market_lower = market_question.lower()
+            for keyword in self.config.skip_market_keywords:
+                if keyword in market_lower:
+                    log_event(
+                        self.logger,
+                        "TRADE_SKIPPED",
+                        f"Skipped (matches '{keyword}'): {side} {market_question}",
+                    )
+                    return
+
         if not token_id:
             # Log but still notify on Telegram about the detected trade
             log_event(
