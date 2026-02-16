@@ -63,8 +63,8 @@ class ProfileMonitor:
     def decode_polymarket_trade(self, tx_hash: str) -> Optional[dict]:
         """Decode a Polymarket trade from transaction receipt."""
         try:
+            time.sleep(0.3)  # Rate limit protection
             tx = self.w3.eth.get_transaction(tx_hash)
-            receipt = self.w3.eth.get_transaction_receipt(tx_hash)
 
             to_addr = (tx.get("to") or "").lower()
             is_polymarket = to_addr in {e.lower() for e in POLYMARKET_EXCHANGES}
@@ -136,8 +136,8 @@ class ProfileMonitor:
 
                 # Scan recent blocks for transactions from this address
                 current_block = self.w3.eth.block_number
-                # Check last ~30 blocks (~1 minute of Polygon blocks)
-                scan_from = max(self.last_block, current_block - 30)
+                # Only scan last 10 blocks to avoid rate limits
+                scan_from = max(self.last_block, current_block - 10)
 
                 for block_num in range(scan_from, current_block + 1):
                     try:
@@ -155,8 +155,10 @@ class ProfileMonitor:
                                 trade = self.decode_polymarket_trade(tx_hash)
                                 if trade:
                                     new_trades.append(trade)
+                        time.sleep(0.3)  # Rate limit protection
                     except Exception as e:
                         log_event(self.logger, "BLOCK_SCAN_ERROR", f"Block {block_num}: {e}")
+                        time.sleep(1)  # Back off on errors
 
                 self.last_nonce = current_nonce
                 self.last_block = current_block
