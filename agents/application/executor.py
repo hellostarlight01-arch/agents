@@ -8,7 +8,7 @@ import math
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_anthropic import ChatAnthropic
+from langchain_groq import ChatGroq
 
 from agents.polymarket.gamma import GammaMarketClient as Gamma
 from agents.connectors.chroma import PolymarketRAG as Chroma
@@ -29,15 +29,16 @@ def retain_keys(data, keys_to_retain):
         return data
 
 class Executor:
-    def __init__(self, default_model='claude-sonnet-4-5-20250929') -> None:
+    def __init__(self, default_model='llama-3.3-70b-versatile') -> None:
         load_dotenv()
-        self.token_limit = 150000  # Claude has 200k context, leave room
+        self.token_limit = 128000  # Llama 3.3 70B context window
         self.prompter = Prompter()
-        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        self.llm = ChatAnthropic(
+        self.groq_api_key = os.getenv("GROQ_API_KEY")
+        self.llm = ChatGroq(
             model=default_model,
             temperature=0,
             max_tokens=4096,
+            api_key=self.groq_api_key,
         )
         self.gamma = Gamma()
         self.chroma = Chroma()

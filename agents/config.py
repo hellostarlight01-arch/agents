@@ -42,7 +42,7 @@ class BotConfig:
     market_refresh_seconds: int = 60  # 1 minute market data refresh
 
     # LLM
-    llm_model: str = "claude-sonnet-4-5-20250929"
+    llm_model: str = "llama-3.3-70b-versatile"
 
     # Risk
     risk: RiskConfig = field(default_factory=RiskConfig)
@@ -65,7 +65,7 @@ def get_config() -> BotConfig:
     config.strategy = os.getenv("BOT_STRATEGY", "one_best_trade")
     config.trade_interval_seconds = int(os.getenv("BOT_TRADE_INTERVAL", "300"))
     config.monitor_interval_seconds = int(os.getenv("BOT_MONITOR_INTERVAL", "30"))
-    config.llm_model = os.getenv("BOT_LLM_MODEL", "claude-sonnet-4-5-20250929")
+    config.llm_model = os.getenv("BOT_LLM_MODEL", "llama-3.3-70b-versatile")
     config.log_level = os.getenv("BOT_LOG_LEVEL", "INFO")
 
     risk = config.risk
