@@ -109,23 +109,28 @@ class ProfileMonitor:
         return self.resolve_profile_to_address()
 
     def fetch_target_trades(self) -> list[dict]:
-        """Fetch recent trades from the target address via CLOB API."""
+        """Fetch recent trades from the target address via CLOB API and activity API."""
         address = self.get_target_address()
+        all_trades = []
 
-        try:
-            url = f"{self.clob_url}/trades"
-            params = {"maker_address": address, "limit": 50}
-            resp = httpx.get(url, params=params, timeout=15)
-            if resp.status_code == 200:
-                return resp.json()
-        except Exception as e:
-            log_event(
-                self.logger,
-                "FETCH_TRADES_ERROR",
-                f"CLOB trades endpoint failed: {e}",
-            )
+        # Try CLOB maker trades
+        for role in ["maker_address", "taker_address"]:
+            try:
+                url = f"{self.clob_url}/trades"
+                params = {role: address, "limit": 50}
+                resp = httpx.get(url, params=params, timeout=15)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list):
+                        all_trades.extend(data)
+            except Exception as e:
+                log_event(
+                    self.logger,
+                    "FETCH_TRADES_ERROR",
+                    f"CLOB {role} endpoint failed: {e}",
+                )
 
-        # Fallback: try the data API
+        # Try data API
         try:
             url = f"{self.clob_url}/data/trades"
             params = {"maker_address": address, "limit": 50}
@@ -133,8 +138,9 @@ class ProfileMonitor:
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, dict) and "data" in data:
-                    return data["data"]
-                return data
+                    all_trades.extend(data["data"])
+                elif isinstance(data, list):
+                    all_trades.extend(data)
         except Exception as e:
             log_event(
                 self.logger,
@@ -142,7 +148,32 @@ class ProfileMonitor:
                 f"CLOB data/trades endpoint failed: {e}",
             )
 
-        return []
+        # Try Gamma activity API (catches trades the CLOB API might miss)
+        try:
+            url = f"{self.gamma_url}/activity"
+            params = {"user": address, "limit": 50}
+            resp = httpx.get(url, params=params, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    all_trades.extend(data)
+        except Exception as e:
+            log_event(
+                self.logger,
+                "FETCH_TRADES_ERROR",
+                f"Gamma activity endpoint failed: {e}",
+            )
+
+        # Deduplicate by trade ID
+        seen = set()
+        unique_trades = []
+        for trade in all_trades:
+            tid = trade.get("id") or trade.get("tradeID") or trade.get("transaction_hash")
+            if tid and tid not in seen:
+                seen.add(tid)
+                unique_trades.append(trade)
+
+        return unique_trades
 
     def fetch_target_positions(self) -> list[dict]:
         """Fetch current positions from the target address."""
