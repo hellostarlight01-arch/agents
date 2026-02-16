@@ -63,7 +63,7 @@ def start(
         300, help="Seconds between trading cycles"
     ),
     model: str = typer.Option(
-        "gpt-3.5-turbo-16k", help="LLM model to use"
+        "claude-sonnet-4-5-20250929", help="LLM model to use"
     ),
 ) -> None:
     """
